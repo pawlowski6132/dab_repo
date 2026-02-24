@@ -29,5 +29,15 @@
       "mode": "production"
     }
   },
-  "entities": {}
+  "entities": {
+    "GuitarBrand": {
+      "source": "dbo.guitar_brands",
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": ["read"]
+        }
+      ]
+    }
+  }
 }
