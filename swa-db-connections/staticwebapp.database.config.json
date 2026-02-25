@@ -13,6 +13,10 @@
     },
     "host": {
       "mode": "production",
+      "cors": {
+        "origins": ["*"],
+        "allow-credentials": false
+      },
       "authentication": {
         "provider": "StaticWebApps"
       }
