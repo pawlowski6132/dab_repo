@@ -5,10 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guitar Brands</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+        body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
         ul { list-style: none; padding: 0; }
         li { padding: 8px 0; border-bottom: 1px solid #eee; }
         #status { color: #888; font-style: italic; }
+        .chart-container { margin-top: 48px; }
+        .table-section { margin-top: 48px; }
+        .table-section h2 { margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        thead tr { background: #1e3a5f; color: #fff; }
+        thead th { padding: 12px 16px; text-align: left; font-weight: 600; letter-spacing: 0.04em; }
+        tbody tr { border-bottom: 1px solid #e8e8e8; transition: background 0.15s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: #f0f6ff; }
+        tbody td { padding: 11px 16px; color: #333; }
+        tbody td:last-child { color: #888; font-size: 13px; }
+        #usa-status { color: #888; font-style: italic; margin-bottom: 12px; }
     </style>
 </head>
 <body>
@@ -16,6 +28,28 @@
     <p id="status">Loading...</p>
     <ul id="brands"></ul>
 
+    <div class="chart-container">
+        <h2>Brand Timeline</h2>
+        <canvas id="timeline"></canvas>
+    </div>
+
+    <div class="table-section">
+        <h2>USA Guitar Brands</h2>
+        <p id="usa-status">Loading...</p>
+        <table id="usa-table">
+            <thead>
+                <tr>
+                    <th>Brand</th>
+                    <th>Origin</th>
+                    <th>Est.</th>
+                </tr>
+            </thead>
+            <tbody id="usa-tbody"></tbody>
+        </table>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script>
         const API_URL = 'https://dab-api.thankfulsmoke-edcf3214.eastus2.azurecontainerapps.io/api/GuitarBrand';
 
@@ -26,15 +60,98 @@
             })
             .then(data => {
                 document.getElementById('status').textContent = `${data.value.length} brands found`;
+
+                // Render list
                 const list = document.getElementById('brands');
                 data.value.forEach(brand => {
                     const li = document.createElement('li');
                     li.textContent = `${brand.brand} (${brand.origin}, est. ${brand.established})`;
                     list.appendChild(li);
                 });
+
+                // Sort oldest to newest for the timeline
+                const sorted = [...data.value].sort((a, b) => a.established - b.established);
+
+                Chart.register(ChartDataLabels);
+
+                new Chart(document.getElementById('timeline'), {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            data: sorted.map(b => ({ x: b.established, y: 1 })),
+                            showLine: true,
+                            borderColor: '#ccc',
+                            borderWidth: 2,
+                            pointRadius: 8,
+                            pointHoverRadius: 10,
+                            pointBackgroundColor: 'steelblue',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2
+                        }]
+                    },
+                    options: {
+                        plugins: {
+                            legend: { display: false },
+                            datalabels: {
+                                formatter: (_, ctx) => sorted[ctx.dataIndex].brand,
+                                align: 'top',
+                                offset: 10,
+                                rotation: -45,
+                                font: { size: 11 },
+                                color: '#333'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const b = sorted[ctx.dataIndex];
+                                        return `${b.brand} — ${b.origin}, est. ${b.established}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                title: { display: true, text: 'Year Established' },
+                                ticks: { stepSize: 10 }
+                            },
+                            y: {
+                                display: false,
+                                min: 0,
+                                max: 2.5
+                            }
+                        },
+                        layout: {
+                            padding: { top: 60 }
+                        }
+                    }
+                });
             })
             .catch(err => {
                 document.getElementById('status').textContent = `Error: ${err.message}`;
+            });
+
+        // Second fetch — USA brands only via OData filter
+        fetch(`${API_URL}?$filter=origin eq 'USA' or origin eq 'U.S.A' or origin eq 'U.S.A.'&$orderby=established`)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                document.getElementById('usa-status').textContent = `${data.value.length} brands`;
+                const tbody = document.getElementById('usa-tbody');
+                data.value.forEach(brand => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${brand.brand}</td>
+                        <td>${brand.origin}</td>
+                        <td>${brand.established}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            })
+            .catch(err => {
+                document.getElementById('usa-status').textContent = `Error: ${err.message}`;
             });
     </script>
 </body>
