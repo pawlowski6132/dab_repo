@@ -5,154 +5,244 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guitar Brands</title>
     <style>
-        body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 8px 0; border-bottom: 1px solid #eee; }
-        #status { color: #888; font-style: italic; }
-        .chart-container { margin-top: 48px; }
-        .table-section { margin-top: 48px; }
-        .table-section h2 { margin-bottom: 16px; }
+        body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 20px; color: #222; }
+        h1 { margin-bottom: 4px; }
+        h2 { margin-top: 48px; margin-bottom: 16px; }
+
+        /* Form */
+        #brand-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; padding: 16px; background: #f7f9fc; border: 1px solid #dde3ed; border-radius: 6px; }
+        #brand-form label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 4px; }
+        #brand-form input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 160px; }
+        #brand-form input[name="established"] { width: 90px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-primary { background: #1e3a5f; color: #fff; }
+        .btn-primary:hover { background: #16304f; }
+        .btn-cancel { background: #e0e0e0; color: #333; }
+        .btn-cancel:hover { background: #ccc; }
+
+        /* Tables */
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         thead tr { background: #1e3a5f; color: #fff; }
-        thead th { padding: 12px 16px; text-align: left; font-weight: 600; letter-spacing: 0.04em; }
-        tbody tr { border-bottom: 1px solid #e8e8e8; transition: background 0.15s; }
+        thead th { padding: 11px 14px; text-align: left; font-weight: 600; letter-spacing: 0.03em; }
+        tbody tr { border-bottom: 1px solid #eee; transition: background 0.12s; }
         tbody tr:last-child { border-bottom: none; }
         tbody tr:hover { background: #f0f6ff; }
-        tbody td { padding: 11px 16px; color: #333; }
-        tbody td:last-child { color: #888; font-size: 13px; }
-        #usa-status { color: #888; font-style: italic; margin-bottom: 12px; }
+        tbody td { padding: 10px 14px; }
+        .action-btn { padding: 4px 10px; border: none; border-radius: 3px; font-size: 12px; cursor: pointer; }
+        .edit-btn { background: #e8f0fe; color: #1a56b0; margin-right: 4px; }
+        .edit-btn:hover { background: #c3d4f7; }
+        .delete-btn { background: #fdecea; color: #b71c1c; }
+        .delete-btn:hover { background: #f5c6c2; }
+
+        /* Status / chart */
+        .status { color: #888; font-style: italic; font-size: 13px; margin-bottom: 10px; }
+        .chart-container { margin-top: 48px; }
+        a { color: #1a56b0; }
     </style>
 </head>
 <body>
-    <h1>Guitar Brands</h1>
-    <p id="status">Loading...</p>
-    <ul id="brands"></ul>
+    <h1>Guitar Brand Manager</h1>
 
+    <!-- Add / Edit Form -->
+    <form id="brand-form">
+        <label>Brand <input name="brand" placeholder="e.g. Gibson" required></label>
+        <label>Origin <input name="origin" placeholder="e.g. U.S.A." required></label>
+        <label>Website <input name="mfg_url" placeholder="e.g. https://..."></label>
+        <label>Est. Year <input name="established" type="number" placeholder="1946" required></label>
+        <input type="hidden" name="brand_sk">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Add Brand</button>
+            <button type="button" class="btn btn-cancel" id="cancel-btn" style="display:none">Cancel</button>
+        </div>
+    </form>
+
+    <p class="status" id="all-status">Loading...</p>
+    <table>
+        <thead>
+            <tr><th>Brand</th><th>Origin</th><th>Website</th><th>Est.</th><th></th></tr>
+        </thead>
+        <tbody id="all-tbody"></tbody>
+    </table>
+
+    <!-- Timeline -->
     <div class="chart-container">
         <h2>Brand Timeline</h2>
         <canvas id="timeline"></canvas>
     </div>
 
-    <div class="table-section">
-        <h2>USA Guitar Brands</h2>
-        <p id="usa-status">Loading...</p>
-        <table id="usa-table">
-            <thead>
-                <tr>
-                    <th>Brand</th>
-                    <th>Origin</th>
-                    <th>Est.</th>
-                </tr>
-            </thead>
-            <tbody id="usa-tbody"></tbody>
-        </table>
-    </div>
+    <!-- USA Table -->
+    <h2>USA Guitar Brands</h2>
+    <p class="status" id="usa-status">Loading...</p>
+    <table>
+        <thead>
+            <tr><th>Brand</th><th>Origin</th><th>Est.</th></tr>
+        </thead>
+        <tbody id="usa-tbody"></tbody>
+    </table>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script>
         const API_URL = 'https://dab-api.thankfulsmoke-edcf3214.eastus2.azurecontainerapps.io/api/GuitarBrand';
+        const form = document.getElementById('brand-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
+        let chart = null;
 
-        fetch(API_URL)
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                document.getElementById('status').textContent = `${data.value.length} brands found`;
+        // ── Load all brands ──────────────────────────────────────────────
+        function loadAllBrands() {
+            document.getElementById('all-status').textContent = 'Loading...';
+            fetch(API_URL)
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then(data => {
+                    document.getElementById('all-status').textContent = `${data.value.length} brands`;
+                    renderAllTable(data.value);
+                    renderTimeline(data.value);
+                })
+                .catch(err => { document.getElementById('all-status').textContent = `Error: ${err.message}`; });
+        }
 
-                // Render list
-                const list = document.getElementById('brands');
-                data.value.forEach(brand => {
-                    const li = document.createElement('li');
-                    li.textContent = `${brand.brand} (${brand.origin}, est. ${brand.established})`;
-                    list.appendChild(li);
-                });
+        function renderAllTable(brands) {
+            const tbody = document.getElementById('all-tbody');
+            tbody.innerHTML = '';
+            brands.forEach(b => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${b.brand}</td>
+                    <td>${b.origin}</td>
+                    <td>${b.mfg_url ? `<a href="${b.mfg_url}" target="_blank">${b.mfg_url}</a>` : ''}</td>
+                    <td>${b.established}</td>
+                    <td>
+                        <button class="action-btn edit-btn" onclick="startEdit(${b.brand_sk})">Edit</button>
+                        <button class="action-btn delete-btn" onclick="deleteBrand(${b.brand_sk}, '${b.brand}')">Delete</button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+        }
 
-                // Sort oldest to newest for the timeline
-                const sorted = [...data.value].sort((a, b) => a.established - b.established);
+        // ── Load USA brands ──────────────────────────────────────────────
+        function loadUSABrands() {
+            fetch(`${API_URL}?$filter=origin eq 'USA' or origin eq 'U.S.A' or origin eq 'U.S.A.'&$orderby=established`)
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then(data => {
+                    document.getElementById('usa-status').textContent = `${data.value.length} brands`;
+                    const tbody = document.getElementById('usa-tbody');
+                    tbody.innerHTML = '';
+                    data.value.forEach(b => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${b.brand}</td><td>${b.origin}</td><td>${b.established}</td>`;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(err => { document.getElementById('usa-status').textContent = `Error: ${err.message}`; });
+        }
 
-                Chart.register(ChartDataLabels);
-
-                new Chart(document.getElementById('timeline'), {
-                    type: 'scatter',
-                    data: {
-                        datasets: [{
-                            data: sorted.map(b => ({ x: b.established, y: 1 })),
-                            showLine: true,
-                            borderColor: '#ccc',
-                            borderWidth: 2,
-                            pointRadius: 8,
-                            pointHoverRadius: 10,
-                            pointBackgroundColor: 'steelblue',
-                            pointBorderColor: '#fff',
-                            pointBorderWidth: 2
-                        }]
-                    },
-                    options: {
-                        plugins: {
-                            legend: { display: false },
-                            datalabels: {
-                                formatter: (_, ctx) => sorted[ctx.dataIndex].brand,
-                                align: 'top',
-                                offset: 10,
-                                rotation: -45,
-                                font: { size: 11 },
-                                color: '#333'
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: (ctx) => {
-                                        const b = sorted[ctx.dataIndex];
-                                        return `${b.brand} — ${b.origin}, est. ${b.established}`;
-                                    }
+        // ── Timeline chart ───────────────────────────────────────────────
+        function renderTimeline(brands) {
+            const sorted = [...brands].sort((a, b) => a.established - b.established);
+            if (chart) chart.destroy();
+            Chart.register(ChartDataLabels);
+            chart = new Chart(document.getElementById('timeline'), {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        data: sorted.map(b => ({ x: b.established, y: 1 })),
+                        showLine: true,
+                        borderColor: '#ccc',
+                        borderWidth: 2,
+                        pointRadius: 8,
+                        pointHoverRadius: 10,
+                        pointBackgroundColor: 'steelblue',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
+                    }]
+                },
+                options: {
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            formatter: (_, ctx) => sorted[ctx.dataIndex].brand,
+                            align: 'top', offset: 10, rotation: -45,
+                            font: { size: 11 }, color: '#333'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => {
+                                    const b = sorted[ctx.dataIndex];
+                                    return `${b.brand} — ${b.origin}, est. ${b.established}`;
                                 }
                             }
-                        },
-                        scales: {
-                            x: {
-                                type: 'linear',
-                                title: { display: true, text: 'Year Established' },
-                                ticks: { stepSize: 10 }
-                            },
-                            y: {
-                                display: false,
-                                min: 0,
-                                max: 2.5
-                            }
-                        },
-                        layout: {
-                            padding: { top: 60 }
                         }
-                    }
-                });
-            })
-            .catch(err => {
-                document.getElementById('status').textContent = `Error: ${err.message}`;
+                    },
+                    scales: {
+                        x: { type: 'linear', title: { display: true, text: 'Year Established' }, ticks: { stepSize: 10 } },
+                        y: { display: false, min: 0, max: 2.5 }
+                    },
+                    layout: { padding: { top: 60 } }
+                }
             });
+        }
 
-        // Second fetch — USA brands only via OData filter
-        fetch(`${API_URL}?$filter=origin eq 'USA' or origin eq 'U.S.A' or origin eq 'U.S.A.'&$orderby=established`)
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                document.getElementById('usa-status').textContent = `${data.value.length} brands`;
-                const tbody = document.getElementById('usa-tbody');
-                data.value.forEach(brand => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${brand.brand}</td>
-                        <td>${brand.origin}</td>
-                        <td>${brand.established}</td>
-                    `;
-                    tbody.appendChild(tr);
+        // ── CRUD: Create / Update ────────────────────────────────────────
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form));
+            const id = data.brand_sk;
+            const payload = {
+                brand: data.brand,
+                origin: data.origin,
+                mfg_url: data.mfg_url,
+                established: parseInt(data.established)
+            };
+
+            const isEdit = !!id;
+            const url = isEdit ? `${API_URL}/brand_sk/${id}` : API_URL;
+            const method = isEdit ? 'PUT' : 'POST';
+
+            fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then(() => { resetForm(); loadAllBrands(); loadUSABrands(); })
+                .catch(err => alert(`Save failed: ${err.message}`));
+        });
+
+        // ── CRUD: Edit (populate form) ───────────────────────────────────
+        function startEdit(id) {
+            fetch(`${API_URL}/brand_sk/${id}`)
+                .then(r => r.json())
+                .then(data => {
+                    const b = data.value[0];
+                    form.elements['brand_sk'].value = b.brand_sk;
+                    form.elements['brand'].value = b.brand;
+                    form.elements['origin'].value = b.origin;
+                    form.elements['mfg_url'].value = b.mfg_url || '';
+                    form.elements['established'].value = b.established;
+                    submitBtn.textContent = 'Update Brand';
+                    cancelBtn.style.display = 'block';
+                    form.scrollIntoView({ behavior: 'smooth' });
                 });
-            })
-            .catch(err => {
-                document.getElementById('usa-status').textContent = `Error: ${err.message}`;
-            });
+        }
+
+        cancelBtn.addEventListener('click', resetForm);
+
+        function resetForm() {
+            form.reset();
+            form.elements['brand_sk'].value = '';
+            submitBtn.textContent = 'Add Brand';
+            cancelBtn.style.display = 'none';
+        }
+
+        // ── CRUD: Delete ─────────────────────────────────────────────────
+        function deleteBrand(id, name) {
+            if (!confirm(`Delete "${name}"?`)) return;
+            fetch(`${API_URL}/brand_sk/${id}`, { method: 'DELETE' })
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
+                .then(() => { loadAllBrands(); loadUSABrands(); })
+                .catch(err => alert(`Delete failed: ${err.message}`));
+        }
+
+        // ── Init ─────────────────────────────────────────────────────────
+        loadAllBrands();
+        loadUSABrands();
     </script>
 </body>
 </html>
