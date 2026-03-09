@@ -14,6 +14,7 @@
         #brand-form label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 4px; }
         #brand-form input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 160px; }
         #brand-form input[name="established"] { width: 90px; }
+        #brand-form input[name="brand_sk"] { width: 60px; }
         .btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
         .btn-primary { background: #1e3a5f; color: #fff; }
         .btn-primary:hover { background: #16304f; }
@@ -45,11 +46,11 @@
 
     <!-- Add / Edit Form -->
     <form id="brand-form">
+        <label id="sk-label">ID <input name="brand_sk" type="number" placeholder="e.g. 10" required></label>
         <label>Brand <input name="brand" placeholder="e.g. Gibson" required></label>
         <label>Origin <input name="origin" placeholder="e.g. U.S.A." required></label>
         <label>Website <input name="mfg_url" placeholder="e.g. https://..."></label>
         <label>Est. Year <input name="established" type="number" placeholder="1946" required></label>
-        <input type="hidden" name="brand_sk">
         <div style="display:flex;gap:8px;align-items:flex-end">
             <button type="submit" class="btn btn-primary" id="submit-btn">Add Brand</button>
             <button type="button" class="btn btn-cancel" id="cancel-btn" style="display:none">Cancel</button>
@@ -187,15 +188,16 @@
         form.addEventListener('submit', e => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form));
-            const id = data.brand_sk;
+            const isEdit = form.dataset.editId;
+            const id = isEdit || data.brand_sk;
             const payload = {
+                brand_sk: parseInt(data.brand_sk),
                 brand: data.brand,
                 origin: data.origin,
                 mfg_url: data.mfg_url,
                 established: parseInt(data.established)
             };
 
-            const isEdit = !!id;
             const url = isEdit ? `${API_URL}/brand_sk/${id}` : API_URL;
             const method = isEdit ? 'PUT' : 'POST';
 
@@ -211,11 +213,13 @@
                 .then(r => r.json())
                 .then(data => {
                     const b = data.value[0];
+                    form.dataset.editId = b.brand_sk;
                     form.elements['brand_sk'].value = b.brand_sk;
                     form.elements['brand'].value = b.brand;
                     form.elements['origin'].value = b.origin;
                     form.elements['mfg_url'].value = b.mfg_url || '';
                     form.elements['established'].value = b.established;
+                    document.getElementById('sk-label').style.display = 'none';
                     submitBtn.textContent = 'Update Brand';
                     cancelBtn.style.display = 'block';
                     form.scrollIntoView({ behavior: 'smooth' });
@@ -226,7 +230,8 @@
 
         function resetForm() {
             form.reset();
-            form.elements['brand_sk'].value = '';
+            delete form.dataset.editId;
+            document.getElementById('sk-label').style.display = '';
             submitBtn.textContent = 'Add Brand';
             cancelBtn.style.display = 'none';
         }
