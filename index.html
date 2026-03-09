@@ -191,7 +191,7 @@
             const isEdit = form.dataset.editId;
             const id = isEdit || data.brand_sk;
             const payload = {
-                brand_sk: parseInt(data.brand_sk),
+                ...(isEdit ? {} : { brand_sk: parseInt(data.brand_sk) }),
                 brand: data.brand,
                 origin: data.origin,
                 mfg_url: data.mfg_url,
