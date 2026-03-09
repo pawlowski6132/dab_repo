@@ -5,23 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guitar Brands</title>
     <style>
+        /*
+         * PAGE LAYOUT
+         * Centers the content, caps width at 960px, and sets a readable default font.
+         */
         body { font-family: sans-serif; max-width: 960px; margin: 40px auto; padding: 0 20px; color: #222; }
         h1 { margin-bottom: 4px; }
         h2 { margin-top: 48px; margin-bottom: 16px; }
 
-        /* Form */
+        /*
+         * ADD / EDIT FORM
+         * Uses flexbox so the fields and buttons sit in a horizontal row.
+         * flex-wrap: wrap allows them to stack on narrow screens.
+         * Each <label> is a column (flex-direction: column) so the text sits
+         * above its input field.
+         */
         #brand-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; padding: 16px; background: #f7f9fc; border: 1px solid #dde3ed; border-radius: 6px; }
         #brand-form label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 4px; }
         #brand-form input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 160px; }
+        /* Narrower widths for short fields */
         #brand-form input[name="established"] { width: 90px; }
         #brand-form input[name="brand_sk"] { width: 60px; }
+        /* Shared button base style */
         .btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
         .btn-primary { background: #1e3a5f; color: #fff; }
         .btn-primary:hover { background: #16304f; }
         .btn-cancel { background: #e0e0e0; color: #333; }
         .btn-cancel:hover { background: #ccc; }
 
-        /* Tables */
+        /*
+         * DATA TABLES
+         * border-collapse: collapse removes the gap between cell borders.
+         * The transition on tbody tr enables the hover highlight to fade in smoothly.
+         */
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         thead tr { background: #1e3a5f; color: #fff; }
         thead th { padding: 11px 14px; text-align: left; font-weight: 600; letter-spacing: 0.03em; }
@@ -29,13 +45,14 @@
         tbody tr:last-child { border-bottom: none; }
         tbody tr:hover { background: #f0f6ff; }
         tbody td { padding: 10px 14px; }
+        /* Inline Edit / Delete buttons inside each table row */
         .action-btn { padding: 4px 10px; border: none; border-radius: 3px; font-size: 12px; cursor: pointer; }
         .edit-btn { background: #e8f0fe; color: #1a56b0; margin-right: 4px; }
         .edit-btn:hover { background: #c3d4f7; }
         .delete-btn { background: #fdecea; color: #b71c1c; }
         .delete-btn:hover { background: #f5c6c2; }
 
-        /* Status / chart */
+        /* Status line shown above each table while data loads or on error */
         .status { color: #888; font-style: italic; font-size: 13px; margin-bottom: 10px; }
         .chart-container { margin-top: 48px; }
         a { color: #1a56b0; }
@@ -44,19 +61,39 @@
 <body>
     <h1>Guitar Brand Manager</h1>
 
-    <!-- Add / Edit Form -->
+    <!--
+        ADD / EDIT FORM
+        This single form handles both creating new records and editing existing ones.
+        Its mode is controlled in JavaScript by whether form.dataset.editId is set:
+          - Add mode:  ID field visible, button says "Add Brand"
+          - Edit mode: ID field hidden, button says "Update Brand", Cancel button shown
+
+        DAB (Data API Builder) requires:
+          - POST (create): brand_sk must be in the request body (it is not auto-increment)
+          - PUT  (update): brand_sk must NOT be in the request body (it is in the URL)
+        The JavaScript submit handler manages this difference automatically.
+    -->
     <form id="brand-form">
+        <!-- sk-label is hidden when editing so the user cannot change the primary key -->
         <label id="sk-label">ID <input name="brand_sk" type="number" placeholder="e.g. 10" required></label>
         <label>Brand <input name="brand" placeholder="e.g. Gibson" required></label>
         <label>Origin <input name="origin" placeholder="e.g. U.S.A." required></label>
+        <!-- mfg_url is optional — no 'required' attribute -->
         <label>Website <input name="mfg_url" placeholder="e.g. https://..."></label>
         <label>Est. Year <input name="established" type="number" placeholder="1946" required></label>
         <div style="display:flex;gap:8px;align-items:flex-end">
             <button type="submit" class="btn btn-primary" id="submit-btn">Add Brand</button>
+            <!-- Cancel button only appears in edit mode; resets the form back to add mode -->
             <button type="button" class="btn btn-cancel" id="cancel-btn" style="display:none">Cancel</button>
         </div>
     </form>
 
+    <!--
+        ALL BRANDS TABLE
+        Populated by loadAllBrands() on page load and after every create/update/delete.
+        Each row includes Edit and Delete action buttons.
+        The status <p> shows record count or an error message.
+    -->
     <p class="status" id="all-status">Loading...</p>
     <table>
         <thead>
@@ -65,13 +102,25 @@
         <tbody id="all-tbody"></tbody>
     </table>
 
-    <!-- Timeline -->
+    <!--
+        BRAND TIMELINE CHART
+        A Chart.js scatter chart with showLine: true — this turns it into a horizontal
+        timeline. Brands are plotted by year (x-axis), all at y=1 so they sit on one line.
+        chartjs-plugin-datalabels adds the brand name labels above each point.
+        The chart is rebuilt every time loadAllBrands() refreshes the data.
+    -->
     <div class="chart-container">
         <h2>Brand Timeline</h2>
         <canvas id="timeline"></canvas>
     </div>
 
-    <!-- USA Table -->
+    <!--
+        USA BRANDS TABLE
+        Populated by a separate API call that uses an OData $filter.
+        Filtering happens on the server (in SQL) so only matching rows are returned.
+        This demonstrates calling the same API endpoint twice on one page with
+        different query parameters to show different subsets of the data.
+    -->
     <h2>USA Guitar Brands</h2>
     <p class="status" id="usa-status">Loading...</p>
     <table>
@@ -81,16 +130,39 @@
         <tbody id="usa-tbody"></tbody>
     </table>
 
+    <!--
+        EXTERNAL LIBRARIES (loaded from CDN, no npm/build step needed)
+        Chart.js      — canvas-based charting library
+        datalabels    — Chart.js plugin that draws text labels on data points
+    -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script>
+        /*
+         * API_URL — the base URL for the DAB REST endpoint.
+         * DAB convention: /api/{EntityName}
+         * The entity "GuitarBrand" is defined in staticwebapp.database.config.json
+         * and maps to the dbo.guitar_brands table in Azure SQL.
+         */
         const API_URL = 'https://dab-api.thankfulsmoke-edcf3214.eastus2.azurecontainerapps.io/api/GuitarBrand';
+
+        // Grab form elements once at startup for reuse throughout the script
         const form = document.getElementById('brand-form');
         const submitBtn = document.getElementById('submit-btn');
         const cancelBtn = document.getElementById('cancel-btn');
+
+        // chart holds the current Chart.js instance so we can destroy it before
+        // rebuilding — without this, creating a new chart on the same canvas
+        // throws a "Canvas is already in use" error.
         let chart = null;
 
-        // ── Load all brands ──────────────────────────────────────────────
+
+        // ── LOAD ALL BRANDS ──────────────────────────────────────────────────
+        /*
+         * Fetches every row from the GuitarBrand entity with no filter.
+         * DAB always returns results in the shape: { "value": [ {...}, {...} ] }
+         * On success, both the table and the timeline chart are redrawn.
+         */
         function loadAllBrands() {
             document.getElementById('all-status').textContent = 'Loading...';
             fetch(API_URL)
@@ -103,6 +175,15 @@
                 .catch(err => { document.getElementById('all-status').textContent = `Error: ${err.message}`; });
         }
 
+        /*
+         * Builds the all-brands table from an array of brand objects.
+         * tbody.innerHTML = '' clears the previous rows before re-rendering
+         * so we don't end up with duplicate rows after a create/update/delete.
+         *
+         * The Edit button calls startEdit(brand_sk) to populate the form.
+         * The Delete button calls deleteBrand(brand_sk, brand) to confirm and delete.
+         * mfg_url is optional — if empty, the cell is left blank.
+         */
         function renderAllTable(brands) {
             const tbody = document.getElementById('all-tbody');
             tbody.innerHTML = '';
@@ -121,7 +202,21 @@
             });
         }
 
-        // ── Load USA brands ──────────────────────────────────────────────
+
+        // ── LOAD USA BRANDS ──────────────────────────────────────────────────
+        /*
+         * Makes a separate API call with OData query parameters:
+         *   $filter  — filters rows server-side in SQL (only matching rows returned)
+         *   $orderby — sorts results server-side by the established column
+         *
+         * Three origin values are checked because the data is not normalized:
+         * some rows store 'USA', some 'U.S.A', and some 'U.S.A.' (trailing period).
+         * OData 'or' works the same as SQL OR.
+         *
+         * Key point: This is a second independent fetch() on the same page.
+         * You can call the same DAB endpoint as many times as you need with
+         * different filters to populate different sections of the UI.
+         */
         function loadUSABrands() {
             fetch(`${API_URL}?$filter=origin eq 'USA' or origin eq 'U.S.A' or origin eq 'U.S.A.'&$orderby=established`)
                 .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
@@ -138,7 +233,27 @@
                 .catch(err => { document.getElementById('usa-status').textContent = `Error: ${err.message}`; });
         }
 
-        // ── Timeline chart ───────────────────────────────────────────────
+
+        // ── TIMELINE CHART ───────────────────────────────────────────────────
+        /*
+         * Renders a horizontal timeline using Chart.js.
+         *
+         * Chart type: 'scatter' — plots individual (x, y) coordinate pairs.
+         * showLine: true — connects the dots with a line, making it look like a timeline.
+         * All brands share the same y value (y: 1) so they sit on a single horizontal line.
+         * The x value is the year established, giving us the left-to-right time ordering.
+         *
+         * ChartDataLabels plugin: draws the brand name above each point.
+         *   formatter: returns the brand name for the current data index
+         *   rotation: -45 tilts the labels to avoid overlap
+         *   offset/align: positions the label above the dot with extra padding
+         *
+         * Y axis is hidden (display: false) — we only care about the x (year) axis.
+         * layout.padding.top: 60 creates room above the dots for the rotated labels.
+         *
+         * chart.destroy() before re-creating prevents the "Canvas already in use" error
+         * that would occur when this function is called again after a data refresh.
+         */
         function renderTimeline(brands) {
             const sorted = [...brands].sort((a, b) => a.established - b.established);
             if (chart) chart.destroy();
@@ -168,6 +283,7 @@
                         },
                         tooltip: {
                             callbacks: {
+                                // Custom tooltip shows brand, origin, and year on hover
                                 label: ctx => {
                                     const b = sorted[ctx.dataIndex];
                                     return `${b.brand} — ${b.origin}, est. ${b.established}`;
@@ -184,18 +300,44 @@
             });
         }
 
-        // ── CRUD: Create / Update ────────────────────────────────────────
+
+        // ── CRUD: CREATE AND UPDATE ──────────────────────────────────────────
+        /*
+         * Handles form submission for both Add (POST) and Edit (PUT).
+         * The form.dataset.editId flag distinguishes the two modes:
+         *   - Not set → Add mode → POST to /api/GuitarBrand
+         *   - Set     → Edit mode → PUT to /api/GuitarBrand/brand_sk/{id}
+         *
+         * DAB-specific payload rules:
+         *   POST: brand_sk MUST be in the body. The dbo.guitar_brands table does not
+         *         use an identity/auto-increment column, so the caller supplies the PK.
+         *
+         *   PUT:  brand_sk must NOT be in the body. DAB reads the PK from the URL
+         *         (/brand_sk/{id}) and returns HTTP 400 "extra fields supplied" if
+         *         you also include it in the body.
+         *
+         * The spread operator handles this cleanly:
+         *   ...(isEdit ? {} : { brand_sk: parseInt(data.brand_sk) })
+         * When editing, the spread produces nothing (empty object).
+         * When adding, it injects the brand_sk field.
+         *
+         * After a successful save, the form is reset and both tables/chart reload.
+         */
         form.addEventListener('submit', e => {
             e.preventDefault();
+
+            // Collect all form field values as a plain object
             const data = Object.fromEntries(new FormData(form));
-            const isEdit = form.dataset.editId;
-            const id = isEdit || data.brand_sk;
+
+            const isEdit = form.dataset.editId;           // truthy when in edit mode
+            const id = isEdit || data.brand_sk;           // use stored editId or form value
+
             const payload = {
-                ...(isEdit ? {} : { brand_sk: parseInt(data.brand_sk) }),
+                ...(isEdit ? {} : { brand_sk: parseInt(data.brand_sk) }), // PK in body for POST only
                 brand: data.brand,
                 origin: data.origin,
                 mfg_url: data.mfg_url,
-                established: parseInt(data.established)
+                established: parseInt(data.established)   // must be a number, not a string
             };
 
             const url = isEdit ? `${API_URL}/brand_sk/${id}` : API_URL;
@@ -207,27 +349,49 @@
                 .catch(err => alert(`Save failed: ${err.message}`));
         });
 
-        // ── CRUD: Edit (populate form) ───────────────────────────────────
+
+        // ── CRUD: START EDITING A RECORD ─────────────────────────────────────
+        /*
+         * Called when the user clicks Edit on a table row.
+         * Fetches the single record by primary key from DAB:
+         *   GET /api/GuitarBrand/brand_sk/{id}
+         * DAB returns the same { "value": [...] } shape, so we take index [0].
+         *
+         * Form state changes for edit mode:
+         *   - form.dataset.editId stores the PK so the submit handler knows it's an update
+         *   - The ID field (sk-label) is hidden — the user should not change the PK
+         *   - Submit button text changes to "Update Brand"
+         *   - Cancel button becomes visible
+         *   - Page scrolls up smoothly to the form
+         */
         function startEdit(id) {
             fetch(`${API_URL}/brand_sk/${id}`)
                 .then(r => r.json())
                 .then(data => {
                     const b = data.value[0];
-                    form.dataset.editId = b.brand_sk;
+                    form.dataset.editId = b.brand_sk;          // marks the form as "edit mode"
                     form.elements['brand_sk'].value = b.brand_sk;
                     form.elements['brand'].value = b.brand;
                     form.elements['origin'].value = b.origin;
                     form.elements['mfg_url'].value = b.mfg_url || '';
                     form.elements['established'].value = b.established;
-                    document.getElementById('sk-label').style.display = 'none';
+                    document.getElementById('sk-label').style.display = 'none'; // hide ID field
                     submitBtn.textContent = 'Update Brand';
                     cancelBtn.style.display = 'block';
                     form.scrollIntoView({ behavior: 'smooth' });
                 });
         }
 
+        // Cancel button returns the form to Add mode without saving anything
         cancelBtn.addEventListener('click', resetForm);
 
+        /*
+         * Resets the form to its initial Add mode state:
+         *   - Clears all field values
+         *   - Removes the editId flag (form is no longer in edit mode)
+         *   - Shows the ID field again
+         *   - Restores button labels
+         */
         function resetForm() {
             form.reset();
             delete form.dataset.editId;
@@ -236,7 +400,17 @@
             cancelBtn.style.display = 'none';
         }
 
-        // ── CRUD: Delete ─────────────────────────────────────────────────
+
+        // ── CRUD: DELETE A RECORD ────────────────────────────────────────────
+        /*
+         * Called when the user clicks Delete on a table row.
+         * Shows a browser confirm() dialog first — if the user cancels, nothing happens.
+         *
+         * DAB DELETE endpoint: DELETE /api/GuitarBrand/brand_sk/{id}
+         * No request body is needed — the PK in the URL is sufficient.
+         *
+         * On success, both tables and the chart reload to reflect the deletion.
+         */
         function deleteBrand(id, name) {
             if (!confirm(`Delete "${name}"?`)) return;
             fetch(`${API_URL}/brand_sk/${id}`, { method: 'DELETE' })
@@ -245,7 +419,13 @@
                 .catch(err => alert(`Delete failed: ${err.message}`));
         }
 
-        // ── Init ─────────────────────────────────────────────────────────
+
+        // ── INITIALISATION ───────────────────────────────────────────────────
+        /*
+         * Both calls fire immediately and run in parallel (the browser makes both
+         * HTTP requests without waiting for the other to finish).
+         * loadAllBrands() also triggers renderTimeline() once its data arrives.
+         */
         loadAllBrands();
         loadUSABrands();
     </script>
