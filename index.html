@@ -56,10 +56,38 @@
         .status { color: #888; font-style: italic; font-size: 13px; margin-bottom: 10px; }
         .chart-container { margin-top: 48px; }
         a { color: #1a56b0; }
+
+        /*
+         * NATURAL LANGUAGE SEARCH
+         */
+        #ask-section { margin-bottom: 40px; padding: 16px; background: #f0f6ff; border: 1px solid #c3d4f7; border-radius: 6px; }
+        #ask-section h2 { margin-top: 0; margin-bottom: 12px; font-size: 16px; color: #1e3a5f; }
+        #ask-row { display: flex; gap: 8px; }
+        #ask-input { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        #ask-btn { padding: 8px 18px; background: #1e3a5f; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        #ask-btn:hover { background: #16304f; }
+        #ask-btn:disabled { background: #999; cursor: default; }
+        #ask-description { margin-top: 12px; font-size: 13px; color: #555; font-style: italic; }
+        #ask-results { margin-top: 10px; }
     </style>
 </head>
 <body>
     <h1>Guitar Brand Manager</h1>
+
+    <!--
+        NATURAL LANGUAGE SEARCH
+        Sends the user's question to the Azure Function (AskGuitar), which calls
+        Azure OpenAI to translate it into a DAB REST query and returns the results.
+    -->
+    <section id="ask-section">
+        <h2>Ask a Question</h2>
+        <div id="ask-row">
+            <input id="ask-input" type="text" placeholder='e.g. "show me brands established before 1950"' />
+            <button id="ask-btn" class="btn btn-primary">Ask</button>
+        </div>
+        <p id="ask-description"></p>
+        <div id="ask-results"></div>
+    </section>
 
     <!--
         ADD / EDIT FORM
@@ -417,6 +445,57 @@
                 .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
                 .then(() => { loadAllBrands(); loadUSABrands(); })
                 .catch(err => alert(`Delete failed: ${err.message}`));
+        }
+
+
+        // ── NATURAL LANGUAGE SEARCH ──────────────────────────────────────────
+        const ASK_URL = 'https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar';
+
+        document.getElementById('ask-btn').addEventListener('click', askQuestion);
+        document.getElementById('ask-input').addEventListener('keydown', e => { if (e.key === 'Enter') askQuestion(); });
+
+        function askQuestion() {
+            const question = document.getElementById('ask-input').value.trim();
+            if (!question) return;
+
+            const btn = document.getElementById('ask-btn');
+            const descEl = document.getElementById('ask-description');
+            const resultsEl = document.getElementById('ask-results');
+
+            btn.disabled = true;
+            btn.textContent = 'Asking...';
+            descEl.textContent = '';
+            resultsEl.innerHTML = '';
+
+            fetch(ASK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            })
+            .then(r => r.json())
+            .then(data => {
+                descEl.textContent = data.description || '';
+                if (!data.results || data.results.length === 0) {
+                    resultsEl.innerHTML = '<p style="color:#888;font-size:13px">No results found.</p>';
+                    return;
+                }
+                const table = document.createElement('table');
+                table.innerHTML = `<thead><tr><th>Brand</th><th>Origin</th><th>Est.</th><th>Website</th></tr></thead>`;
+                const tbody = document.createElement('tbody');
+                data.results.forEach(b => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${b.brand}</td>
+                        <td>${b.origin}</td>
+                        <td>${b.established}</td>
+                        <td>${b.mfg_url ? `<a href="${b.mfg_url}" target="_blank">${b.mfg_url}</a>` : ''}</td>`;
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                resultsEl.appendChild(table);
+            })
+            .catch(err => { descEl.textContent = `Error: ${err.message}`; })
+            .finally(() => { btn.disabled = false; btn.textContent = 'Ask'; });
         }
 
 
