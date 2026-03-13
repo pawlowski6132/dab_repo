@@ -17,7 +17,7 @@ Browser
                                        └── SQL queries ────► Azure SQL Database
 ```
 
-Four tiers with natural language AI layer. The "API" is a generic engine configured by a JSON file. GPT-4o translates user questions into API calls — no custom query code required.
+Four tiers with natural language AI layer. The "API" is a generic engine configured by a JSON file. GPT-4o translates user questions into API calls — no custom query code required. If the question is outside the database schema, GPT-4o answers from general knowledge instead.
 
 ```
 Browser
@@ -31,9 +31,16 @@ Browser
   │
   └── Ask a Question ──────────────► Azure Function App (AskGuitar)
                                        │
-                                       ├── prompt + question ──► Azure OpenAI (GPT-4o)
-                                       │                          (translates to DAB query)
-                                       └── DAB API call ────────► Azure Container App (DAB)
+                                       ├── step 1: question ────► Azure OpenAI (GPT-4o)
+                                       │                           (translates to DAB query,
+                                       │                            or returns url:null)
+                                       │
+                                       ├── if url returned ──────► Azure Container App (DAB)
+                                       │                           (DB results path)
+                                       │
+                                       └── if url:null ──────────► Azure OpenAI (GPT-4o)
+                                                                    (general guitar knowledge
+                                                                     fallback — step 2 call)
 ```
 
 ---
@@ -249,27 +256,49 @@ The `.2.` in the URL indicates East US 2 region. This is determined at SWA creat
 
 **What it is:** A serverless Node.js function that sits between the browser and the DAB API, using Azure OpenAI to translate plain English questions into valid DAB REST queries.
 
-**What it does here:** Receives a user's question, sends it to GPT-4o with a system prompt describing the schema and query rules, then calls DAB with the generated URL and returns results.
+**What it does here:** Receives a user's question and routes it one of two ways — if the question maps to the database schema, it calls DAB and returns structured results; if the question is outside the schema (e.g. about a specific guitar model or pickup type), it answers from GPT-4o's general guitar knowledge.
 
 **Invoke URL:** `https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar`
 
-### How It Works
+### How It Works — Two-Mode Flow
 
+**Mode A: DB query** (question matches the database schema)
 ```
 POST /api/askguitar  { "question": "brands established before 1950" }
        │
        ▼
-Azure OpenAI (GPT-4o) with system prompt describing DAB schema + filter syntax
+Step 1: Azure OpenAI (GPT-4o) — system prompt describes schema + DAB filter rules
        │
        ▼
-Generated DAB URL: /api/GuitarBrand?$filter=established lt 1950
+GPT-4o returns: { "url": "/api/GuitarBrand?$filter=established lt 1950", "description": "..." }
        │
        ▼
-DAB API call → SQL → results
+Function calls that DAB URL → SQL → results
        │
        ▼
-{ "description": "...", "results": [...], "dabUrl": "..." }
+Response: { "description": "...", "results": [...], "dabUrl": "..." }
+Frontend renders: results table
 ```
+
+**Mode B: General knowledge fallback** (question is outside the DB schema)
+```
+POST /api/askguitar  { "question": "what pickups does a Les Paul use?" }
+       │
+       ▼
+Step 1: Azure OpenAI (GPT-4o) — same system prompt
+       │
+       ▼
+GPT-4o returns: { "url": null, "description": null }
+       │
+       ▼
+Step 2: Azure OpenAI (GPT-4o) — general guitar knowledge system prompt
+       │
+       ▼
+Response: { "answer": "The Gibson Les Paul Standard uses...", "results": [] }
+Frontend renders: prose blockquote labelled "General guitar knowledge (not from database)"
+```
+
+The two-step design keeps a strict separation: the first call is purely a query translator (responds only with JSON), the second is a free-form knowledge assistant. The same text box in the UI serves both modes — routing is invisible to the user.
 
 ### App Settings
 
@@ -355,23 +384,40 @@ fetch(`${API_URL}/brand_sk/10`, { method: 'DELETE' });
 
 **Chart.js timeline** — scatter chart with `showLine: true` acts as a horizontal timeline. `chartjs-plugin-datalabels` adds brand name labels rotated above each point.
 
-**Natural language search** — "Ask a Question" section POSTs to the Azure Function. The response includes `description` (shown as italic text), `results` (rendered as a table), and `dabUrl` (the generated query, useful for debugging).
+**Natural language search** — "Ask a Question" section POSTs to the Azure Function. The Function returns one of two shapes:
+- DB result: `{ description, results, dabUrl }` — rendered as a table with an italic description label
+- General knowledge: `{ answer, results: [] }` — rendered as a blockquote labelled "General guitar knowledge (not from database)"
+
+The frontend detects which mode to render by checking for the presence of `data.answer`.
 
 ---
 
 ## Full Request Flow
 
-### Natural Language Query
+### Natural Language Query — DB Result Path
 
 ```
 1. User types "brands from Japan established after 1960"
 2. Browser → POST https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar
-3. Function → Azure OpenAI (GPT-4o) with system prompt + question
+3. Function → Azure OpenAI GPT-4o (step 1: query translator system prompt)
 4. GPT-4o → { url: "/api/GuitarBrand?$filter=origin eq 'Japan' and established gt 1960", description: "..." }
 5. Function → GET that DAB URL
 6. DAB → SQL query → Azure SQL → results
 7. Function → { description, results, dabUrl } → Browser
 8. JavaScript renders results table
+```
+
+### Natural Language Query — General Knowledge Path
+
+```
+1. User types "what pickups does a Les Paul use?"
+2. Browser → POST https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar
+3. Function → Azure OpenAI GPT-4o (step 1: query translator system prompt)
+4. GPT-4o → { url: null, description: null }   ← signals: outside the DB schema
+5. Function → Azure OpenAI GPT-4o (step 2: general guitar knowledge system prompt)
+6. GPT-4o → "The Gibson Les Paul Standard uses humbucking pickups..."
+7. Function → { answer: "...", results: [] } → Browser
+8. JavaScript renders prose blockquote
 ```
 
 ### Page Load
