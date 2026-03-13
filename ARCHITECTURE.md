@@ -17,7 +17,24 @@ Browser
                                        └── SQL queries ────► Azure SQL Database
 ```
 
-Three tiers. No custom backend code. The "API" is a generic engine configured by a JSON file.
+Four tiers with natural language AI layer. The "API" is a generic engine configured by a JSON file. GPT-4o translates user questions into API calls — no custom query code required.
+
+```
+Browser
+  │
+  ├── GET index.html ──────────────► Azure Static Web App
+  │                                   (serves static files)
+  │
+  ├── fetch() API calls ───────────► Azure Container App (DAB)
+  │                                   │
+  │                                   └── SQL queries ────► Azure SQL Database
+  │
+  └── Ask a Question ──────────────► Azure Function App (AskGuitar)
+                                       │
+                                       ├── prompt + question ──► Azure OpenAI (GPT-4o)
+                                       │                          (translates to DAB query)
+                                       └── DAB API call ────────► Azure Container App (DAB)
+```
 
 ---
 
@@ -228,7 +245,67 @@ The `.2.` in the URL indicates East US 2 region. This is determined at SWA creat
 
 ---
 
-## Component 5: The Frontend (index.html)
+## Component 5: Azure Function App (Natural Language Layer)
+
+**What it is:** A serverless Node.js function that sits between the browser and the DAB API, using Azure OpenAI to translate plain English questions into valid DAB REST queries.
+
+**What it does here:** Receives a user's question, sends it to GPT-4o with a system prompt describing the schema and query rules, then calls DAB with the generated URL and returns results.
+
+**Invoke URL:** `https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar`
+
+### How It Works
+
+```
+POST /api/askguitar  { "question": "brands established before 1950" }
+       │
+       ▼
+Azure OpenAI (GPT-4o) with system prompt describing DAB schema + filter syntax
+       │
+       ▼
+Generated DAB URL: /api/GuitarBrand?$filter=established lt 1950
+       │
+       ▼
+DAB API call → SQL → results
+       │
+       ▼
+{ "description": "...", "results": [...], "dabUrl": "..." }
+```
+
+### App Settings
+
+| Setting | Value |
+|---|---|
+| `AZURE_OPENAI_ENDPOINT` | `https://eastus2.api.cognitive.microsoft.com/` |
+| `AZURE_OPENAI_KEY` | (secret) |
+| `AZURE_OPENAI_DEPLOYMENT` | `gpt-4o` |
+| `DAB_API_URL` | `https://dab-api.thankfulsmoke-edcf3214.eastus2.azurecontainerapps.io` |
+
+### DAB OData Filter Limitations
+
+Not all OData functions are supported by DAB. These workarounds are encoded in the system prompt:
+
+| Query type | NOT supported | Workaround |
+|---|---|---|
+| Starts with | `startswith(brand, 'L')` | `brand ge 'L' and brand lt 'M'` (range filter) |
+| Contains/substring | `contains(brand, 'cruz')` | Fetch all records, filter in JavaScript in the Function |
+
+For substring queries, GPT-4o returns a `clientFilter` object instead of a DAB `$filter`. The Function fetches all records from DAB and applies the filter in Node.js before returning results.
+
+### Azure OpenAI Resource
+
+| | |
+|---|---|
+| Resource name | `pawlowski-openai` |
+| Resource group | `dab_resource` |
+| Model | `gpt-4o` (version 2024-11-20) |
+| Deployment name | `gpt-4o` |
+| SDK | `openai` npm package (`@azure/openai` v2 is ESM-only, incompatible with CommonJS Functions) |
+
+**To replicate:** Create an Azure OpenAI resource, deploy a GPT-4o model, create a Function App (Node 20, Linux Consumption), set the four app settings above, deploy the function code via `func azure functionapp publish`.
+
+---
+
+## Component 6: The Frontend (index.html)
 
 A single plain HTML file with vanilla JavaScript — no framework, no build step, no `node_modules`.
 
@@ -278,9 +355,24 @@ fetch(`${API_URL}/brand_sk/10`, { method: 'DELETE' });
 
 **Chart.js timeline** — scatter chart with `showLine: true` acts as a horizontal timeline. `chartjs-plugin-datalabels` adds brand name labels rotated above each point.
 
+**Natural language search** — "Ask a Question" section POSTs to the Azure Function. The response includes `description` (shown as italic text), `results` (rendered as a table), and `dabUrl` (the generated query, useful for debugging).
+
 ---
 
 ## Full Request Flow
+
+### Natural Language Query
+
+```
+1. User types "brands from Japan established after 1960"
+2. Browser → POST https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar
+3. Function → Azure OpenAI (GPT-4o) with system prompt + question
+4. GPT-4o → { url: "/api/GuitarBrand?$filter=origin eq 'Japan' and established gt 1960", description: "..." }
+5. Function → GET that DAB URL
+6. DAB → SQL query → Azure SQL → results
+7. Function → { description, results, dabUrl } → Browser
+8. JavaScript renders results table
+```
 
 ### Page Load
 
@@ -316,8 +408,11 @@ To build this in a new environment with a different database and subject:
 | 3. Container App | Create with image `mcr.microsoft.com/azure-databases/data-api-builder:latest`, set the two secrets (`dbconn` → connection string, `dabconfig` → raw config JSON), set the startup command override |
 | 4. Frontend | Create `index.html`, set `API_URL` to your Container App's ingress URL, use `fetch()` with OData params as needed |
 | 5. Static hosting | Push to GitHub, connect to SWA (or any static host), add `skip_app_build: true` if using SWA |
+| 6. Azure OpenAI | Create resource, deploy GPT-4o model, note endpoint and key |
+| 7. Function App | Create Node 20 Linux Consumption plan, set 4 app settings, deploy function code with `func azure functionapp publish` |
+| 8. Frontend AI UI | Add "Ask a Question" section to HTML that POSTs to the Function invoke URL |
 
-**The only things that change per project:** the DAB config (which tables/entities to expose and what permissions to set) and the frontend HTML (what to display and how). The infrastructure pattern is identical.
+**The only things that change per project:** the DAB config (entities/permissions), the frontend HTML, and the system prompt in the Function (which describes your specific schema and query rules to GPT-4o). The infrastructure pattern is identical.
 
 ---
 
@@ -328,6 +423,9 @@ To build this in a new environment with a different database and subject:
 | `white-ground-00d81a50f` | Static Web App | `dab_resource` | Serves index.html |
 | `dab-api` | Container App | `dab_resource` | Runs DAB engine |
 | `dab-env` | Container Apps Environment | `dab_resource` | Hosts the Container App |
+| `pawlowski-guitar-fn` | Function App | `dab_resource` | Natural language → DAB query |
+| `pawlowskifuncstore` | Storage Account | `dab_resource` | Required by Function App |
+| `pawlowski-openai` | Azure OpenAI | `dab_resource` | GPT-4o model for NL queries |
 | `pawlowski-sql-srv` | SQL Server | `pawlowski_dev` | Database server |
 | `pawlowski_sql_db` | SQL Database | `pawlowski_dev` | Stores guitar_brands table |
 

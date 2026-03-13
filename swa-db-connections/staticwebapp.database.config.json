@@ -11,6 +11,9 @@
     "graphql": {
       "enabled": false
     },
+    "mcp": {
+      "enabled": true
+    },
     "host": {
       "mode": "production",
       "cors": {

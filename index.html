@@ -59,6 +59,18 @@
 
         /*
          * NATURAL LANGUAGE SEARCH
+         * Visually distinct from the CRUD form — light blue tint signals a different
+         * interaction mode (ask a question vs. manage a record).
+         *
+         * #ask-section    — card wrapper; blue-tinted background separates it from the page
+         * #ask-row        — flex row so the input stretches and the button stays fixed-width
+         * #ask-input      — flex: 1 makes it fill all available horizontal space
+         * #ask-btn        — matches the primary button style used throughout the page;
+         *                   :disabled state (grey, no pointer) shows while the request is in flight
+         * #ask-description — one-sentence summary returned by the Azure Function, shown in
+         *                   italic below the input so the user understands what was queried
+         * #ask-results    — dynamically populated with a <table> on success, or a "No results"
+         *                   message; emptied at the start of each new question
          */
         #ask-section { margin-bottom: 40px; padding: 16px; background: #f0f6ff; border: 1px solid #c3d4f7; border-radius: 6px; }
         #ask-section h2 { margin-top: 0; margin-bottom: 12px; font-size: 16px; color: #1e3a5f; }
@@ -449,11 +461,59 @@
 
 
         // ── NATURAL LANGUAGE SEARCH ──────────────────────────────────────────
+        /*
+         * ASK_URL — the Azure Function endpoint that powers natural language queries.
+         * Architecture:
+         *   1. This page  → POST question text to AskGuitar (Azure Function App)
+         *   2. AskGuitar  → sends question to Azure OpenAI (GPT-4o) with a system prompt
+         *                   that describes the GuitarBrand schema and DAB query rules
+         *   3. GPT-4o     → returns a JSON object with the DAB REST URL to call
+         *                   (or a clientFilter object for substring/contains queries
+         *                   that DAB's OData engine cannot handle server-side)
+         *   4a. If GPT-4o produced a DAB URL → AskGuitar calls DAB, applies any client-side
+         *       filter, and returns: { description: "...", results: [...], dabUrl: "..." }
+         *   4b. If GPT-4o returned url:null → AskGuitar makes a second GPT-4o call with a
+         *       general guitar-knowledge prompt and returns: { answer: "...", results: [] }
+         *   5. This page  → renders a results table (4a) or a prose blockquote (4b)
+         *
+         * The Function handles both the LLM call and the DAB call server-side,
+         * keeping the Azure OpenAI API key out of the browser entirely.
+         */
         const ASK_URL = 'https://pawlowski-guitar-fn.azurewebsites.net/api/askguitar';
 
+        // Allow the user to trigger a search by clicking the button OR pressing Enter
         document.getElementById('ask-btn').addEventListener('click', askQuestion);
         document.getElementById('ask-input').addEventListener('keydown', e => { if (e.key === 'Enter') askQuestion(); });
 
+        /*
+         * askQuestion() — orchestrates the full natural language search flow.
+         *
+         * Loading state:
+         *   The button is disabled and relabelled "Asking..." for the duration of the
+         *   request so the user gets immediate feedback and cannot submit twice.
+         *   .finally() always re-enables the button, even if the request fails.
+         *
+         * The Azure Function returns one of two response shapes:
+         *
+         *   DB result (question matched the database schema):
+         *   {
+         *     description: "Brands established before 1950 were searched.",
+         *     results:     [ { brand_sk, brand, origin, established, mfg_url }, ... ],
+         *     dabUrl:      "https://.../api/GuitarBrand?$filter=..."
+         *   }
+         *
+         *   General knowledge fallback (question was outside the DB schema,
+         *   e.g. "what pickups does a Les Paul use?"):
+         *   {
+         *     answer:  "The Gibson Les Paul Standard uses...",
+         *     results: []
+         *   }
+         *
+         * Rendering:
+         *   data.answer present  → show as a styled blockquote (general knowledge response)
+         *   data.results present → render as a table; show "No results found." if empty
+         *   Network/parse error  → error message shown in the description element
+         */
         function askQuestion() {
             const question = document.getElementById('ask-input').value.trim();
             if (!question) return;
@@ -474,6 +534,15 @@
             })
             .then(r => r.json())
             .then(data => {
+                // General knowledge fallback — render the answer as a prose block,
+                // not a table. A subtle label makes it clear this came from GPT-4o
+                // rather than the database.
+                if (data.answer) {
+                    descEl.textContent = 'General guitar knowledge (not from database):';
+                    resultsEl.innerHTML = `<blockquote style="margin:8px 0 0 0;padding:10px 14px;border-left:3px solid #c3d4f7;color:#333;font-size:14px;line-height:1.6">${data.answer}</blockquote>`;
+                    return;
+                }
+
                 descEl.textContent = data.description || '';
                 if (!data.results || data.results.length === 0) {
                     resultsEl.innerHTML = '<p style="color:#888;font-size:13px">No results found.</p>';
